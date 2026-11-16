@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Balanza</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d1117'/%3E%3Cg fill='none' stroke='%23fff' stroke-width='3.4' stroke-linecap='round'%3E%3Cpath d='M13 44h38M20 20l2 4M44 20l-2 4'/%3E%3Cpath stroke='%2322d8f0' d='M32 44V22'/%3E%3C/g%3E%3Ccircle cx='32' cy='44' r='4' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="preload" href="/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/GeistMono-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/app.css?v=0.3.0">
+</head>
+<body>
+  <header class="bar ink">
+    <div class="wrap">
+      <a class="wordmark" href="#/" aria-label="Balanza, all models">
+        <svg viewBox="0 0 64 60" width="34" height="32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M12.7 23l2.3 2.7M17.7 19.6l1.3 2.3M22.6 17.3l1.2 3.2M27.3 16l.6 3.4M32 16v7M36.7 16l-.6 3.4M41.4 17.3l-1.2 3.2M46.3 19.6l-1.3 2.3M51.3 23l-2.3 2.7"/>
+          <path d="M32 46V19.5M9 46h46M9 46v4.4M55 46v4.4M4.2 51.4a4.8 4.8 0 0 0 9.6 0M50.2 51.4a4.8 4.8 0 0 0 9.6 0"/>
+          <circle cx="32" cy="46" r="3.1" fill="currentColor" stroke="none"/>
+        </svg>
+        Balanza
+      </a>
+      <p class="deadline" id="deadline"></p>
+    </div>
+  </header>
+  <main id="view" tabindex="-1"></main>
+  <footer class="foot ink">
+    <div class="wrap">
+      <span class="regla" aria-hidden="true"></span>
+      <div class="foot-row">
+        <p class="motto">Evidence that carries weight.</p>
+        <p>Balanza organises evidence. It does not give legal advice and does not replace the conformity assessment.</p>
+      </div>
+    </div>
+  </footer>
+  <div id="tip" class="tip" role="status" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script src="/static/huella.js?v=0.3.0"></script>
+  <script src="/static/app.js?v=0.3.0"></script>
+</body>
+</html>

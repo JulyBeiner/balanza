@@ -1,0 +1,8 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local database (created when Balanza starts; never commit data)
+*.db
