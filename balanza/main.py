@@ -4,15 +4,16 @@ Run it with:  python -m uvicorn balanza.main:app
 """
 from __future__ import annotations
 
+import json
 import re
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, aiact, database, report, route, seed
+from . import __version__, aiact, database, report, route, seal, seed, verdict
 from .validation import DatasetError, fingerprint, read_csv, run_monitoring, run_validation
 
 STATIC = database.ROOT / "static"
@@ -82,14 +83,14 @@ def _summary(model: dict) -> dict:
     }
 
 
-async def _read_text_upload(file: UploadFile) -> str:
+async def _read_text_upload(file: UploadFile, kind: str = "a CSV saved as UTF-8 text") -> str:
     raw = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="The file is larger than 25 MB.")
     try:
         return raw.decode("utf-8-sig")
     except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="The file must be a CSV saved as UTF-8 text.") from None
+        raise HTTPException(status_code=400, detail=f"The file must be {kind}.") from None
 
 
 async def _read_csv_upload(file: UploadFile) -> tuple[str, dict]:
@@ -117,9 +118,17 @@ def home() -> FileResponse:
     return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/models/{model_id}/verdict", response_class=HTMLResponse, include_in_schema=False)
+def verdict_page(model_id: int) -> str:
+    html = verdict.page(model_id, seal.state(model_id))
+    if html is None:
+        raise HTTPException(status_code=404, detail="Model not found.")
+    return html
+
+
 @app.get("/models/{model_id}/technical-file", response_class=HTMLResponse, include_in_schema=False)
 def technical_file(model_id: int) -> str:
-    html = report.technical_file(model_id)
+    html = report.technical_file(model_id, seal.state(model_id))
     if html is None:
         raise HTTPException(status_code=404, detail="Model not found.")
     return html
@@ -172,6 +181,9 @@ def model_detail(model_id: int) -> dict:
         "model": {**_summary(model), "docs": model["docs"]},
         "evidence": aiact.evidence(model, validation, monitoring),
         "route": route.route(model, validation, monitoring),
+        "verdict": verdict.verdict(model, validation, monitoring),
+        "seal": seal.state(model_id),
+        "seals": database.list_seals(model_id),
         "drafts": route.drafts(model, validation, monitoring),
         "validation": validation,
         "validations": database.list_validations(model_id),
@@ -239,6 +251,36 @@ async def verify_file(model_id: int, file: UploadFile = File(...)) -> dict:
         "other_models": sorted({match["model_name"] for match in used if match["model_id"] != model_id}),
         "validated": {key: latest[key] for key in ("dataset_name", "dataset_sha256", "created_at")} if latest else None,
     }
+
+
+@app.post("/api/models/{model_id}/seals", status_code=201)
+def seal_evidence(model_id: int) -> dict:
+    """Close everything on record for the model into a pack, under a seal."""
+    _model_or_404(model_id)
+    return seal.seal(model_id)
+
+
+@app.get("/api/models/{model_id}/seals/{mark}")
+def sealed_pack(model_id: int, mark: str) -> Response:
+    """The pack exactly as it was sealed. It is sent as it was stored, never rebuilt."""
+    text = database.sealed_pack(model_id, mark)
+    if text is None:
+        raise HTTPException(status_code=404, detail="No pack with this seal for this model.")
+    sealed = json.loads(text)["content"]
+    name = seal.file_name(sealed["model"]["name"], sealed["sealed_at"], mark)
+    return Response(text, media_type="application/json", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.post("/api/packs/verify")
+async def verify_pack(pack: UploadFile = File(...), data: UploadFile | None = File(default=None)) -> dict:
+    """Is this pack intact, and does the data file weigh the same? Nothing is stored."""
+    pack_text = await _read_text_upload(pack, "a pack sealed by Balanza")
+    data_text = await _read_text_upload(data) if data is not None else None
+    try:
+        result = seal.verify(pack_text, data_text)
+    except (seal.PackError, DatasetError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from None
+    return {"file_name": pack.filename or "pack", **result}
 
 
 @app.get("/api/demo/dataset.csv", response_class=PlainTextResponse)

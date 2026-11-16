@@ -128,6 +128,26 @@ def test_text_is_escaped_in_the_technical_file(client):
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
 
 
+def test_the_verdict_page(client):
+    assert client.get("/models/999/verdict").status_code == 404
+    page = client.get("/models/1/verdict")
+    assert page.status_code == 200
+    for expected in ("Not ready for inspection.", "Consumer Credit Scorecard", "What weighs most", "Its results differ by age band",
+                     "What it takes", "File weighed", "is not legal advice", "data-huella="):
+        assert expected in page.text, expected
+    assert page.text.count("<li>") == 3  # one sheet: the three points that weigh most, the rest is in the technical file
+    assert "1 more point is open" in page.text
+    untested = client.get("/models/2/verdict").text
+    assert "Not classed as high-risk." in untested and "The model has not been tested" in untested and "data-huella=" not in untested
+    assert client.get("/api/models/1").json()["verdict"]["state"] == "fail"
+
+
+def test_text_is_escaped_in_the_verdict_page(client):
+    created = client.post("/api/models", json={"name": "<script>alert(1)</script>", "owner": "<b>Risk</b>", "use_case": "credit_scoring"}).json()
+    page = client.get(f"/models/{created['id']}/verdict").text
+    assert "<script>alert(1)</script>" not in page and "&lt;script&gt;" in page and "<b>Risk</b>" not in page
+
+
 def test_the_route_and_the_drafts_come_with_the_model(client):
     detail = client.get("/api/models/1").json()
     assert detail["route"]["readiness"] == detail["evidence"]["readiness"] == 50

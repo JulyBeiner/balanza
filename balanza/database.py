@@ -50,6 +50,15 @@ CREATE TABLE IF NOT EXISTS audit_log (
     action TEXT NOT NULL,
     detail TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS seals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_id INTEGER NOT NULL REFERENCES models(id),
+    seal TEXT NOT NULL,
+    sealed_at TEXT NOT NULL,
+    previous_seal TEXT,
+    made_with TEXT NOT NULL,
+    pack TEXT NOT NULL
+);
 """
 
 
@@ -241,3 +250,51 @@ def list_audit(model_id: int, limit: int = 200) -> list[dict]:
             (model_id, limit),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def full_audit(model_id: int, without: str) -> list[dict]:
+    """The whole trail of a model, oldest first, leaving out one kind of entry."""
+    with connect() as db:
+        rows = db.execute(
+            "SELECT at, action, detail FROM audit_log WHERE model_id = ? AND action != ? ORDER BY id",
+            (model_id, without),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------- seals
+
+
+def add_seal(model_id: int, seal: str, sealed_at: str, previous_seal: str | None, made_with: str, pack: str) -> None:
+    with connect() as db:
+        db.execute(
+            "INSERT INTO seals (model_id, seal, sealed_at, previous_seal, made_with, pack) VALUES (?, ?, ?, ?, ?, ?)",
+            (model_id, seal, sealed_at, previous_seal, made_with, pack),
+        )
+
+
+def list_seals(model_id: int) -> list[dict]:
+    """The seals of a model, newest first, without the packs themselves."""
+    with connect() as db:
+        rows = db.execute(
+            "SELECT seal, sealed_at, previous_seal, made_with FROM seals WHERE model_id = ? ORDER BY id DESC", (model_id,)
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def sealed_pack(model_id: int, seal: str) -> str | None:
+    """The pack exactly as it was sealed, byte for byte."""
+    with connect() as db:
+        row = db.execute("SELECT pack FROM seals WHERE model_id = ? AND seal = ? ORDER BY id DESC LIMIT 1", (model_id, seal)).fetchone()
+    return row["pack"] if row else None
+
+
+def find_seal(seal: str) -> dict | None:
+    """Was a pack with this seal made on this computer? For which model, and when."""
+    with connect() as db:
+        row = db.execute(
+            "SELECT s.model_id, m.name AS model_name, s.sealed_at FROM seals s JOIN models m ON m.id = s.model_id"
+            " WHERE s.seal = ? ORDER BY s.id DESC LIMIT 1",
+            (seal,),
+        ).fetchone()
+    return dict(row) if row else None

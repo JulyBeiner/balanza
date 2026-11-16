@@ -19,10 +19,11 @@
   ];
   const ACTIONS = {
     "model.registered": "Model registered", "validation.run": "Validation run",
-    "monitoring.recorded": "Monitoring recorded", "docs.updated": "Answers updated",
+    "monitoring.recorded": "Monitoring recorded", "docs.updated": "Answers updated", "evidence.sealed": "Evidence sealed",
   };
   const INK = "#0d1117", COBALT = "#0f52ff", LEAD = "#667080", GRID = "#e8ebef", DASH = "5 4";
   let meta = null;
+  let viewRun = 0; // each page that starts loading takes a number; one that finishes late, after a newer page, does not draw
   let scaleAngle = { id: null, angle: 0 };
 
   // ---------------------------------------------------------------- small helpers
@@ -99,8 +100,8 @@
     tip.style.top = Math.max(8, event.clientY - box.height - 12) + "px";
   });
 
-  function uploadButton(label, onFile, quiet) {
-    const input = h("input", { type: "file", accept: ".csv,text/csv", hidden: true });
+  function uploadButton(label, onFile, quiet, accept = ".csv,text/csv") {
+    const input = h("input", { type: "file", accept, hidden: true });
     const button = h("button", { type: "button", class: quiet ? "quiet" : null, onclick: () => input.click() }, label);
     input.addEventListener("change", async () => {
       if (!input.files.length) return;
@@ -122,9 +123,10 @@
         meta.deadline_text = new Date(meta.deadline + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
         document.getElementById("deadline").append(h("b", null, count(meta.days_left, "day", "days")), " until the high-risk rules apply, ", h("span", { style: "white-space:nowrap" }, meta.deadline_text));
       }
-      const model = parts[0] === "models" && parts[1];
-      document.body.dataset.view = model ? "model" : "inventory";
+      const model = parts[0] === "models" && parts[1], verify = parts[0] === "verify";
+      document.body.dataset.view = model ? "model" : verify ? "verify" : "inventory";
       if (model) await showModel(Number(parts[1]), parts[2] || "requirements", parts[3]);
+      else if (verify) showVerify();
       else await showInventory();
     } catch (error) {
       document.body.dataset.view = "error";
@@ -136,7 +138,9 @@
   // ---------------------------------------------------------------- inventory
 
   async function showInventory() {
+    const run = ++viewRun;
     const models = await api("/api/models");
+    if (run !== viewRun) return;
     const form = registerForm();
     form.hidden = true;
     const toggle = h("button", { type: "button", onclick: () => {
@@ -162,7 +166,7 @@
         h("div", { class: "hero-text" },
           h("h1", null, "Models"),
           h("p", { class: "lede" }, "Every AI model in use, how the EU AI Act classes it, and how much evidence is on record for it."),
-          h("div", { class: "actions" }, toggle)),
+          h("div", { class: "actions" }, toggle, h("a", { class: "button quiet", href: "#/verify" }, "Verify a sealed pack"))),
         h("div", { class: "countdown" },
           h("p", { class: "reading" }, meta.days_left.toLocaleString("en-GB")),
           h("p", { class: "reading-what" }, `${meta.days_left === 1 ? "day" : "days"} until the high-risk rules apply, `, h("span", { style: "white-space:nowrap" }, meta.deadline_text))))),
@@ -209,7 +213,9 @@
   // ---------------------------------------------------------------- model page
 
   async function showModel(id, tab, focus) {
+    const run = ++viewRun;
     const data = await api(`/api/models/${id}`);
+    if (run !== viewRun) return;
     const m = data.model, v = data.validation;
     const reload = async (message) => { await showModel(id, tab); if (message) toast(message); };
     const tabs = [["requirements", "Requirements"], ["validation", "Validation"], ["monitoring", "Monitoring"], ["documentation", "Documentation"], ["history", "History"]];
@@ -219,8 +225,10 @@
 
     const sentence = (text) => (text ? text.replace(/[.\s]+$/, "") + "." : null);
     const about = [sentence(m.purpose), sentence(m.owner), sentence([m.model_type, m.version && `version ${m.version}`].filter(Boolean).join(", "))].filter(Boolean).join(" ");
+    // Two documents leave Balanza: one page for the person who decides, and the full file for the person who inspects.
     const file = h("div", { class: "actions" },
-      h("a", { class: overview ? "button" : "button quiet", href: `/models/${id}/technical-file`, target: "_blank", rel: "noopener" }, "Open the technical file"));
+      h("a", { class: overview ? "button" : "button quiet", href: `/models/${id}/verdict`, target: "_blank", rel: "noopener" }, "Open the one-page verdict"),
+      h("a", { class: "button quiet", href: `/models/${id}/technical-file`, target: "_blank", rel: "noopener" }, "Open the technical file"));
     const { ready, attention, gap } = data.evidence.counts;
     const tool = overview ? instrument(m.id, data.evidence, v) : null;
 
@@ -757,8 +765,9 @@
 
   // ---- history
 
-  function tabHistory(data) {
+  function tabHistory(data, reload) {
     return h("div", null,
+      theSeal(data, reload),
       verifyFile(data),
       h("p", { class: "lede", style: "margin:0 0 20px" }, "Every validation, monitoring month and change, with the fingerprint of the file that was used."),
       h("ul", { class: "trail" }, ...data.audit.map((entry) =>
@@ -808,6 +817,141 @@
           h("p", { class: "muted small" }, "Choose a file to see whether it is one that was weighed for this model. Balanza reads it, takes its fingerprint and keeps nothing.")),
         choose),
       result);
+  }
+
+  // ---- the seal
+
+  // The evidence of the model closed into one file, under a seal: its state, its engraving and the pack to hand over.
+  function theSeal(data, reload) {
+    const id = data.model.id, seal = data.seal;
+    const packUrl = (mark) => `/api/models/${id}/seals/${mark}`;
+    const sealNow = h("button", { type: "button", onclick: async () => {
+      sealNow.disabled = true;
+      try {
+        const made = await api(`/api/models/${id}/seals`, { method: "POST" });
+        // The pack is downloaded exactly as the server stored it: the page never rewrites a sealed file.
+        const link = h("a", { href: packUrl(made.seal), download: made.file_name, hidden: true });
+        document.body.append(link); link.click(); link.remove();
+        await reload("Evidence sealed. The pack has been downloaded: keep it together with its seal.");
+      } catch (failure) { toast(failure.message); sealNow.disabled = false; }
+    } }, seal.state === "changed" ? "Seal the evidence again" : "Seal the evidence");
+    const [state, meaning] = {
+      none: [mark("missing", "Not sealed yet"), "Sealing closes everything on record for this model (the written answers, the validation, the monitoring months and this history) into one file, under a seal. Change one number afterwards and the seal no longer matches."],
+      sealed: [mark("pass", "Under seal, unchanged"), `Sealed on ${when(seal.sealed_at)}. Nothing on record for this model has changed since.`],
+      changed: [mark("warn", "Changed since the last seal"), `What is on record is no longer what was sealed on ${when(seal.sealed_at)}. Seal it again to cover the changes. The new seal keeps the old one inside, so the chain can be followed.`],
+    }[seal.state];
+    const earlier = data.seals.slice(1);
+
+    return h("div", { class: "panel verify sealing" },
+      h("div", { class: seal.seal ? "now" : "now bare" },
+        seal.seal && h("figure", { class: "seal" }, window.balanzaHuella(seal.seal, { iris: true, draw: true, weight: 1.6 }),
+          h("figcaption", null, h("b", null, seal.seal.slice(0, 12) + "…"), "The engraving of this seal")),
+        h("div", { class: "verdict" },
+          h("h2", null, "The seal"),
+          h("p", { class: "summary" }, state),
+          h("p", null, meaning),
+          seal.seal && h("p", { class: "hash" }, seal.seal),
+          h("div", { class: "actions" },
+            seal.state !== "sealed" && sealNow,
+            seal.state === "sealed" && h("a", { class: "button", href: packUrl(seal.seal), download: "" }, "Download the sealed pack"),
+            h("a", { class: "button quiet", href: "#/verify" }, "Verify a sealed pack")),
+          h("p", { class: "muted small" }, "A pack holds results and fingerprints. It never holds the loans."))),
+      earlier.length > 0 && h("details", { class: "earlier" },
+        h("summary", null, count(earlier.length, "earlier seal", "earlier seals")),
+        h("ul", null, ...earlier.map((item) => h("li", null,
+          h("span", { class: "num muted" }, when(item.sealed_at)), h("span", { class: "hash" }, item.seal.slice(0, 16) + "…"),
+          h("a", { href: packUrl(item.seal), download: "" }, "Download"))))));
+  }
+
+  // ---------------------------------------------------------------- verify a sealed pack
+
+  // Whoever receives a pack checks it here: is the seal intact, what does it hold, and does the
+  // data file weigh the same again. The pack and the file are read, checked and dropped.
+  function showVerify() {
+    viewRun += 1;
+    let packFile = null;
+    const result = h("div", { class: "pack-result", hidden: true, "aria-live": "polite" });
+    const engraving = (sha, caption) => h("figure", { class: "seal" }, window.balanzaHuella(sha, { iris: true, draw: true, weight: 1.6 }),
+      h("figcaption", null, h("b", null, sha.slice(0, 12) + "…"), caption));
+    const line = (label, ...value) => h("li", null, h("span", { class: "muted" }, label), h("span", null, ...value));
+    const check = async (dataFile) => {
+      const body = new FormData();
+      body.append("pack", packFile);
+      if (dataFile) body.append("data", dataFile);
+      show(await api("/api/packs/verify", { method: "POST", body }));
+    };
+
+    function weighedAgain(a) {
+      const r = a.reweigh;
+      if (!r) return null;
+      if (!r.same_file) return h("div", { class: "verdict" },
+        h("p", { class: "summary" }, mark("fail", "Not the file that was weighed")),
+        h("p", null, r.month ? `It is the file of the monitoring month ${r.month}, not the file that was validated.`
+          : "Its fingerprint is not the one sealed in the pack. One changed cell is enough to change it."),
+        h("p", { class: "hash" }, r.sha256));
+      if (r.same === r.checks) return h("div", { class: "verdict" },
+        h("p", { class: "summary" }, mark("pass", "Same file, same result")),
+        h("p", null, `It is the file that was validated, and ${r.checks} of its ${r.checks} checks give the same result as in the pack.`));
+      return h("div", { class: "verdict" },
+        h("p", { class: "summary" }, mark("warn", `${r.same} of ${r.checks} checks give the same result`)),
+        h("p", null, `It is the file that was validated, but this Balanza (version ${a.this_version}) does not measure everything as the one that sealed the pack (version ${a.made_with}).`),
+        h("ul", { class: "holds" }, ...r.differences.map((d) => line(d.name, `sealed: ${d.sealed}. Now: ${d.now}.`))));
+    }
+
+    function show(a) {
+      if (!a.intact) {
+        result.replaceChildren(h("div", { class: "now" },
+          h("div", { class: "seals" }, engraving(a.seal, "The seal the pack carries"), engraving(a.computed, "The seal its content gives")),
+          h("div", { class: "verdict" },
+            h("p", { class: "summary" }, mark("fail", "Seal broken")),
+            h("p", null, "What this pack holds does not give the seal it carries. Something in it was changed after it was sealed, so nothing it says can be relied on."),
+            h("p", { class: "hash" }, `Carries ${a.seal}`), h("p", { class: "hash" }, `Gives ${a.computed}`))));
+        result.hidden = false;
+        return;
+      }
+      const inside = a.inside, v = inside.validation, last = inside.months[inside.months.length - 1];
+      result.replaceChildren(
+        h("div", { class: "now" },
+          h("div", { class: "seals" }, engraving(a.seal, a.file_name)),
+          h("div", { class: "verdict" },
+            h("p", { class: "summary" }, mark("pass", "Seal intact")),
+            h("p", null, `Nothing in this pack has changed since it was sealed on ${when(a.sealed_at)}, with Balanza ${a.made_with}.`),
+            h("p", null, a.sealed_here ? `It was sealed on this computer, for ${a.sealed_here.model_name}.`
+              : "It was not sealed on this computer. To know it is the pack you were promised, compare the seal below with the one you were given when it was sealed: it is printed on the verdict page."),
+            h("p", { class: "hash" }, a.seal))),
+        h("h3", { class: "holds-title" }, "What the pack holds"),
+        h("ul", { class: "holds" },
+          line("Model", `${inside.model.name}. ${inside.model.owner}. ${inside.risk_label}.`),
+          line("Read today", `${inside.statement} ${inside.readiness}% of the evidence is ready, read by this Balanza from the sealed evidence.`),
+          line("Written answers", `${inside.answers} of ${inside.answers_total}.`),
+          line("Validated file", v ? [`${v.dataset_name}, ${count(v.n_rows, "loan", "loans")}, validated ${day(v.created_at)}: ${tally(v.counts)}. `, h("span", { class: "hash" }, v.dataset_sha256)] : "None."),
+          line("Monitoring", last ? `${count(inside.months.length, "month", "months")} on record. Latest, ${last.period}: ${WORDS[last.overall].toLowerCase()}.` : "No month on record."),
+          line("History", `${count(inside.history, "entry", "entries")}.`),
+          line("Seal before this one", a.previous_seal ? h("span", { class: "hash" }, a.previous_seal) : "None: it is the first seal of this model.")),
+        v && h("div", { class: "reweigh" },
+          h("div", { class: "verify-ask" },
+            h("div", null, h("h3", null, "Weigh it again"),
+              h("p", { class: "muted small" }, "Choose the file that was validated. Balanza checks that it is the same file and runs every test again.")),
+            uploadButton("Choose the data file", check, true)),
+          weighedAgain(a)));
+      result.hidden = false;
+    }
+
+    const choose = uploadButton("Choose a sealed pack", async (file) => { packFile = file; await check(null); }, false, ".json,application/json");
+    view.replaceChildren(
+      h("section", { class: "hero compact ink" }, h("div", { class: "wrap" },
+        h("div", { class: "hero-text" },
+          h("a", { class: "back", href: "#/" }, "All models"),
+          h("h1", null, "Verify a sealed pack"),
+          h("p", { class: "class" }, "Choose a pack that Balanza sealed. It is read here, checked and dropped: nothing is stored.")))),
+      paper(
+        h("div", { class: "panel verify" },
+          h("div", { class: "verify-ask" },
+            h("div", null, h("h2", null, "Is the seal intact?"),
+              h("p", { class: "muted small" }, "A sealed pack is a file whose name begins with balanza-seal. Whoever sealed the evidence hands it over together with its seal.")),
+            choose),
+          result),
+        h("p", { class: "note" }, "An intact seal shows that nothing changed after sealing. It does not show that the data was true to begin with, or who sealed it.")));
   }
 
   route();

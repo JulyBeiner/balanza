@@ -146,7 +146,17 @@ def _groups_table(fairness: dict) -> str:
     return "".join(html)
 
 
-def technical_file(model_id: int) -> str | None:
+def _under_seal(sealed: dict | None) -> str:
+    """Whether the evidence in this file is the evidence that was sealed (see seal.py)."""
+    if not sealed or sealed["state"] == "none":
+        return "Not sealed."
+    when = escape(sealed["sealed_at"].replace("T", " ").replace("Z", " UTC"))
+    if sealed["state"] == "sealed":
+        return f"<span style='word-break:break-all'>{escape(sealed['seal'])}</span><br>Sealed {when}. The evidence on record has not changed since."
+    return f"The evidence on record has changed since the seal of {when} ({escape(sealed['seal'][:12])}…)."
+
+
+def technical_file(model_id: int, sealed: dict | None = None) -> str | None:
     model = database.get_model(model_id)
     if not model:
         return None
@@ -174,6 +184,7 @@ def technical_file(model_id: int) -> str | None:
         f"<dt>Classification</dt><dd>{escape(aiact.RISK_LABELS[model['risk_class']])}. {escape(model['risk_basis'])}</dd>",
         f"<dt>Evidence status</dt><dd>{counts['ready']} requirements with evidence ready, "
         f"{counts['attention']} needing attention, {counts['gap']} with gaps ({status['readiness']}% readiness)</dd>",
+        f"<dt>Seal</dt><dd>{_under_seal(sealed)}</dd>",
         f"<dt>Generated</dt><dd>{generated}, with Balanza {__version__}</dd>",
         "</dl>",
         # 1

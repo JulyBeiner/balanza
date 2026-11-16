@@ -23,7 +23,7 @@ python run.py
 
 Balanza opens at http://127.0.0.1:8010 (or the next free port, if that one is busy) with a demo inventory. Everything in the demo is invented: the lender, the people and the loans.
 
-## What version 0.4 does
+## What version 0.6 does
 
 - **Inventory.** Every AI model in use, classed under the AI Act (credit scoring of individuals is high-risk: Annex III, point 5(b)).
 - **Validation.** Upload a scored file and Balanza runs 17 checks: data quality, accuracy (AUC, KS), calibration, stability (PSI) and bias by gender and age. Each check shows the number, the rule applied, what it means in plain words and the article it gives evidence for.
@@ -34,6 +34,8 @@ Balanza opens at http://127.0.0.1:8010 (or the next free port, if that one is bu
 - **The route.** What to do next, in order, until the evidence is ready, and how far each step moves the reading. Balanza drafts the missing answers from the test results; a draft with parts still to complete does not count as written.
 - **What if.** Move the approval cut-off and see what would change on the validated loans: approvals, defaults and the bias checks. It shows consequences; it does not recommend a cut-off.
 - **Verify a file.** Choose a file and Balanza says whether it is the one that was weighed, with the two engravings side by side. One changed cell changes the fingerprint and the drawing.
+- **The verdict on one page.** One sheet for the person who decides: where the model stands today, the three points that weigh most in plain words, and what it takes to close them. It prints on a single page. "Ready for inspection" means the evidence is ready; it is never a statement of compliance.
+- **The seal.** Close everything on record for a model (answers, validation, monitoring months, history) into one file under a seal, its SHA-256. Whoever receives the pack checks it in Balanza: one changed number breaks the seal, and the data file can be weighed again to see that every check gives the same result. The seal is printed on the verdict page. A pack holds results and fingerprints, never the loans. An intact seal shows that nothing changed after sealing; it does not show that the data was true, or who sealed it.
 
 ### The scored file
 
@@ -71,10 +73,12 @@ One month of loans is a small sample, so numbers move by luck. A fixed rule ("wa
 | `balanza/aiact.py` | The AI Act requirements and how evidence maps to them |
 | `balanza/route.py` | The route to 100%: the next steps, and the drafts written from the evidence |
 | `balanza/report.py` | The Annex IV technical file |
+| `balanza/verdict.py` | The verdict: one page for the person who decides |
+| `balanza/seal.py` | The seal: the evidence closed into a pack, and the pack checked |
 | `balanza/main.py`, `balanza/database.py` | The API (FastAPI) and storage (SQLite) |
 | `balanza/synthetic.py`, `balanza/demo_model.py`, `balanza/seed.py` | Invented data, the demo credit model and the demo inventory |
 | `static/` | The page (plain HTML, CSS and JavaScript, no libraries). `huella.js` draws the engraving from a file's fingerprint. `fonts/` holds Geist and Geist Mono (SIL Open Font License) |
-| `tests/` | 49 tests. Run them with `pip install -r requirements-dev.txt` and `pytest` |
+| `tests/` | 65 tests. Run them with `pip install -r requirements-dev.txt` and `pytest` |
 
 ## What it will do
 - Build credit risk models that are accurate and explainable

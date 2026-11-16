@@ -316,6 +316,25 @@ input[type=range]:focus-visible { outline: 2px solid var(--cian); outline-offset
 .verdict p + p { margin-top: 10px; color: var(--grafito); max-width: 64ch; }
 .verdict .hash { overflow-wrap: anywhere; color: var(--plomo); }
 
+/* ---------------------------------------------------------------- the seal: the evidence closed into a pack, and the pack checked */
+.now { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 24px 48px; align-items: center; }
+.now.bare { grid-template-columns: minmax(0, 1fr); }
+.sealing h2 + .summary, .pack-result .summary + p { margin-top: 10px; }
+.sealing .actions { margin-top: 22px; }
+.sealing .actions + p { margin-top: 14px; }
+.earlier { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--niebla); font-size: 14.5px; }
+.earlier summary { cursor: pointer; font-weight: 500; }
+.earlier ul { margin-top: 8px; }
+.earlier li { display: grid; grid-template-columns: 180px minmax(0, 1fr) auto; gap: 16px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--niebla); }
+.pack-result { margin-top: 28px; padding-top: 28px; border-top: 1px solid var(--niebla); }
+.holds-title { margin-top: 40px; }
+.holds { margin-top: 12px; border-top: 1px solid var(--tinta); }
+.holds li { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--niebla); font-size: 15px; line-height: 23px; color: var(--grafito); }
+.holds .hash { overflow-wrap: anywhere; color: var(--plomo); }
+.reweigh { margin-top: 40px; }
+.reweigh .verdict { margin-top: 24px; }
+.reweigh .holds { margin-top: 16px; }
+
 @media (max-width: 1042px) {
   .instrument .huella-svg { width: 112%; height: 112%; left: -6%; top: -6%; }
   .instrument .balance { width: 92%; left: 4%; top: 28.25%; }
@@ -326,6 +345,7 @@ input[type=range]:focus-visible { outline: 2px solid var(--cian); outline-offset
   .hero.compact .hero-text { padding-bottom: 20px; }
   .charts, .split, .form { grid-template-columns: minmax(0, 1fr); gap: 28px; }
   .verify-result { grid-template-columns: minmax(0, 1fr); }
+  .now, .holds li, .earlier li { grid-template-columns: minmax(0, 1fr); } .holds li, .earlier li { gap: 2px; }
   .whatif .readings { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .split > table { display: block; overflow-x: auto; }
   .trail li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
