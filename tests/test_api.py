@@ -126,3 +126,37 @@ def test_text_is_escaped_in_the_technical_file(client):
     html = client.get(f"/models/{created['id']}/technical-file").text
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+
+
+def test_the_route_and_the_drafts_come_with_the_model(client):
+    detail = client.get("/api/models/1").json()
+    assert detail["route"]["readiness"] == detail["evidence"]["readiness"] == 50
+    assert detail["route"]["steps"][0]["id"] == "write.limitations"
+    assert "ratio 0.73" in detail["drafts"]["limitations"]
+    assert len(detail["validation"]["what_if"]) == 50
+    # a draft is only offered: nothing was written into the model's answers
+    assert detail["model"]["docs"]["limitations"] == ""
+    # saving the draft untouched does not close the gap
+    assert client.patch("/api/models/1/docs", json={"limitations": detail["drafts"]["limitations"]}).status_code == 200
+    again = client.get("/api/models/1").json()
+    assert again["evidence"]["readiness"] == 50 and again["route"]["steps"][0]["action"] == "Finish the answer"
+    assert client.patch("/api/models/1/docs", json={"limitations": ""}).status_code == 200
+
+
+def test_verify_a_file_against_what_was_weighed(client):
+    dataset = client.get("/api/demo/dataset.csv").text
+    same = client.post("/api/models/1/verify", files={"file": ("copy.csv", dataset, "text/csv")}).json()
+    assert same["sha256"] == same["validated"]["dataset_sha256"]
+    assert [match["kind"] for match in same["matches"]] == ["validation"]
+    assert same["matches"][0]["dataset_name"] == "demo_credit_scored.csv"
+
+    lines = dataset.splitlines(keepends=True)
+    lines[1] = lines[1].replace(",", ", ", 1)  # one cell changed, by one space
+    changed = client.post("/api/models/1/verify", files={"file": ("copy.csv", "".join(lines), "text/csv")}).json()
+    assert changed["matches"] == [] and changed["sha256"] != same["sha256"]
+    assert changed["validated"]["dataset_sha256"] == same["sha256"]
+
+    # nothing is stored or logged by a verification
+    assert not any("verify" in entry["action"] for entry in client.get("/api/models/1").json()["audit"])
+    assert client.post("/api/models/1/verify", files={"file": ("x.bin", b"\xff\xfe\x00", "application/octet-stream")}).status_code == 400
+    assert client.post("/api/models/999/verify", files={"file": ("x.csv", "a", "text/csv")}).status_code == 404

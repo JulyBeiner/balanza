@@ -124,7 +124,7 @@
       }
       const model = parts[0] === "models" && parts[1];
       document.body.dataset.view = model ? "model" : "inventory";
-      if (model) await showModel(Number(parts[1]), parts[2] || "requirements");
+      if (model) await showModel(Number(parts[1]), parts[2] || "requirements", parts[3]);
       else await showInventory();
     } catch (error) {
       document.body.dataset.view = "error";
@@ -208,7 +208,7 @@
 
   // ---------------------------------------------------------------- model page
 
-  async function showModel(id, tab) {
+  async function showModel(id, tab, focus) {
     const data = await api(`/api/models/${id}`);
     const m = data.model, v = data.validation;
     const reload = async (message) => { await showModel(id, tab); if (message) toast(message); };
@@ -245,8 +245,11 @@
             file]),
         overview ? tool.element : file)),
       overview && v && band(v),
-      paper(render(data, reload))].filter(Boolean));
+      ...[render(data, reload, focus)].flat().map((part) => (part.matches("section") ? part : paper(part)))].filter(Boolean));
     if (tool) tool.weigh(false);
+    // Opened at one place in the page (a step of the route leads there): bring it into view.
+    const place = focus && document.getElementById(`at-${focus}`);
+    if (place) place.scrollIntoView({ block: "center" });
   }
 
   // The band of readings under the instrument: the numbers of the last validation.
@@ -282,6 +285,8 @@
     return h("div", null,
       data.model.risk_class !== "high" && h("p", { class: "lede", style: "margin:0 0 40px" },
         "This use is not classed as high-risk, so the requirements below are not mandatory for it. They are kept here as good practice."),
+      theRoute(data.model.id, data.route),
+      h("h2", { class: "register-title" }, "The requirements, one by one"),
       h("ul", { class: "register" }, ...evidence.requirements.map((r) => {
         const [, number, extra] = /^Art\. (\d+)(.*)$/.exec(r.article) || [null, r.article, ""];
         return h("li", null,
@@ -294,17 +299,39 @@
       h("p", { class: "note" }, "\"Evidence ready\" means the tests pass and the written answers exist. It is not a statement that the model complies with the AI Act."));
   }
 
-  // The instrument. La huella of the validated file, and in front of it the balance: evidence on
-  // the left pan, open work on the right. The heavier side goes down and the needle (el fiel)
-  // shows by how much on its graduated arc. Weighing draws the engraving, swings the balance
-  // until it settles, and counts the numbers up.
-  function instrument(modelId, evidence, validation) {
-    const { ready, attention, gap } = evidence.counts;
-    const open = attention + gap;
-    const target = ((open - ready) / Math.max(ready + open, 1)) * 12; // degrees
+  // The route: what to do next, in order, until the evidence is ready. The first step is the
+  // one to take today; each says how far it moves the reading.
+  function theRoute(modelId, plan) {
+    if (!plan.steps.length) {
+      return h("div", { class: "route done" }, h("h2", null, "Nothing left to do"),
+        h("p", { class: "lede" }, "The evidence for every requirement is ready. Keep recording a month of production loans every month."));
+    }
+    const list = (items) => items.length > 1 ? items.slice(0, -1).join(", ") + " and " + items.at(-1) : items[0];
+    let reading = plan.readiness;
+    const steps = plan.steps.map((step) => {
+      const after = step.readiness_after;
+      let effect;
+      if (after === null) effect = `Needed for ${list(step.articles)}. The reading moves once this is done.`;
+      else if (after > reading) effect = `${step.hypothetical ? "Once solved, evidence" : "Evidence"} ready goes from ${reading}% to ${after}%.` + (step.closes.length ? ` Closes ${list(step.closes)}.` : "");
+      else effect = `Needed for ${list(step.articles)}. The reading moves when the other steps for ${step.articles.length > 1 ? "them" : "it"} are done.`;
+      if (after !== null) reading = after;
+      const place = step.kind === "write" ? `/${step.field}` : step.id === "act.fairness" ? "/what-if" : "";
+      return h("li", { class: step.number === 1 ? "first" : null },
+        h("span", { class: "n" }, step.number),
+        h("div", { class: "what" }, h("h3", null, step.title), h("p", null, step.what), h("p", { class: "effect" }, effect)),
+        h("a", { class: step.number === 1 ? "button" : "button quiet", href: `#/models/${modelId}/${step.tab}${place}` }, step.action));
+    });
+    return h("div", { class: "route" },
+      h("h2", null, "What to do next"),
+      h("p", { class: "lede" }, `${count(plan.steps.length, "step", "steps")} until the evidence for every requirement is ready. Start with the first.`),
+      h("ol", { class: "steps" }, ...steps));
+  }
+
+  // A balance with weights on its pans. load() puts the weights on, swing() lets it move to
+  // where they take it, until it settles.
+  function balance(leftLabel, rightLabel) {
     const cx = 220, cy = 104, arm = 150, drop = 62, needle = 76;
     const stroke = (cls, width, d) => s("path", { class: cls, d, fill: "none", "stroke-width": width, "stroke-linecap": "round" });
-
     let arc = "";
     for (let i = -9; i <= 9; i++) {
       const a = (i * 3 * Math.PI) / 180, inner = needle + (i === 0 ? 8 : i % 3 === 0 ? 13 : 16);
@@ -317,47 +344,71 @@
       return s("rect", { class: "weight gap", x: x - 7, y: y - 7, width: 14, height: 14 });
     });
     const strings = `M0 0L-56 ${drop}M0 0L56 ${drop}`, plate = `M-62 ${drop}H62`;
-    const pan = (items) => s("g", null,
-      stroke("cut", 5, strings), stroke("cut", 6.5, plate), stroke("line", 1.2, strings), stroke("line", 1.9, plate),
-      s("g", { transform: `translate(0 ${drop})` }, ...weights(items)));
+    const pan = () => {
+      const load = s("g", { transform: `translate(0 ${drop})` });
+      const group = s("g", null, stroke("cut", 5, strings), stroke("cut", 6.5, plate), stroke("line", 1.2, strings), stroke("line", 1.9, plate), load);
+      return { group, load };
+    };
     const stand = `M${cx} ${cy}V214M${cx - 52} 214H${cx + 52}`;
     const beamCut = stroke("cut", 6.5, ""), beam = stroke("line", 1.9, ""), fielCut = stroke("cut", 7, ""), fiel = stroke("fiel", 2.2, "");
-    const left = pan(Array(ready).fill("ready"));
-    const right = pan([...Array(gap).fill("gap"), ...Array(attention).fill("attention")]);
-
-    const picture = s("svg", { class: "balance", viewBox: "0 0 440 248", role: "img", "aria-label": `A balance. ${ready} requirements with evidence ready on one pan, ${open} still open on the other.` },
+    const left = pan(), right = pan();
+    const picture = s("svg", { class: "balance", viewBox: "0 0 440 248", role: "img" },
       stroke("cut", 6.5, stand), stroke("cut", 4.5, arc), stroke("line", 1, arc), stroke("line", 1.9, stand),
-      beamCut, fielCut, beam, fiel, left, right,
+      beamCut, fielCut, beam, fiel, left.group, right.group,
       s("circle", { class: "pivot", cx, cy, r: 4.6 }),
-      s("text", { x: cx - arm, y: 240 }, "Evidence ready"), s("text", { x: cx + arm, y: 240 }, "Still open"));
+      s("text", { x: cx - arm, y: 240 }, leftLabel), s("text", { x: cx + arm, y: 240 }, rightLabel));
 
+    let at = 0, target = 0, run = 0;
     function draw(angle) {
+      at = angle;
       const rad = (angle * Math.PI) / 180, dx = arm * Math.cos(rad), dy = arm * Math.sin(rad);
       const across = `M${cx - dx} ${cy - dy}L${cx + dx} ${cy + dy}`, up = `M${cx} ${cy}L${cx + needle * Math.sin(rad)} ${cy - needle * Math.cos(rad)}`;
       beamCut.setAttribute("d", across); beam.setAttribute("d", across);
       fielCut.setAttribute("d", up); fiel.setAttribute("d", up);
-      left.setAttribute("transform", `translate(${cx - dx} ${cy - dy})`);
-      right.setAttribute("transform", `translate(${cx + dx} ${cy + dy})`);
+      left.group.setAttribute("transform", `translate(${cx - dx} ${cy - dy})`);
+      right.group.setAttribute("transform", `translate(${cx + dx} ${cy + dy})`);
     }
-    let swinging = 0;
+    // Weights on: the good ones on the left pan, the open ones on the right. Returns where it will rest.
+    function load({ ready, attention, gap }) {
+      const open = attention + gap;
+      left.load.replaceChildren(...weights(Array(ready).fill("ready")));
+      right.load.replaceChildren(...weights([...Array(gap).fill("gap"), ...Array(attention).fill("attention")]));
+      picture.setAttribute("aria-label", `A balance. ${ready} on the pan "${leftLabel}", ${open} on the pan "${rightLabel}".`);
+      target = ((open - ready) / Math.max(ready + open, 1)) * 12; // degrees
+      return target;
+    }
+    function swing(from = at) {
+      const mine = ++run, to = target;
+      if (still() || from === to) { draw(to); return; }
+      draw(from);
+      const start = performance.now();
+      const step = (now) => {
+        if (mine !== run) return;
+        const t = (now - start) / 1000;
+        draw(to + (from - to) * Math.exp(-1.25 * t) * Math.cos(4.4 * t)); // swings, then rests
+        if (t < 3.8) requestAnimationFrame(step); else draw(to);
+      };
+      requestAnimationFrame(step);
+    }
+    draw(0);
+    return { picture, load, swing, draw };
+  }
+
+  // The instrument. La huella of the validated file, and in front of it the balance: evidence on
+  // the left pan, open work on the right. The heavier side goes down and the needle (el fiel)
+  // shows by how much on its graduated arc. Weighing draws the engraving, swings the balance
+  // until it settles, and counts the numbers up.
+  function instrument(modelId, evidence, validation) {
+    const scale = balance("Evidence ready", "Still open");
+    const target = scale.load(evidence.counts);
+    scale.draw(target);
     function swing(again) {
       // It starts where the balance last rested for this model, or tipped as if just loaded.
       let from = again ? target - 9 : scaleAngle.id === modelId ? scaleAngle.angle : target - 13;
       if (Math.abs(from - target) < 0.5) from = target - 7;
       scaleAngle = { id: modelId, angle: target };
-      const run = ++swinging;
-      if (still()) { draw(target); return; }
-      draw(from);
-      const start = performance.now();
-      const step = (now) => {
-        if (run !== swinging) return;
-        const t = (now - start) / 1000;
-        draw(target + (from - target) * Math.exp(-1.25 * t) * Math.cos(4.4 * t)); // swings, then rests
-        if (t < 3.8) requestAnimationFrame(step); else draw(target);
-      };
-      requestAnimationFrame(step);
+      scale.swing(from);
     }
-    draw(target);
 
     const seal = validation && window.balanzaHuella(validation.dataset_sha256, { iris: true, draw: true, weight: 0.5 });
     function weigh(again) {
@@ -366,8 +417,8 @@
       runCounters();
     }
     const element = seal
-      ? h("button", { type: "button", class: "instrument", "aria-label": "Weigh again: replay the drawing and the balance", onclick: () => weigh(true) }, seal, picture)
-      : h("div", { class: "instrument bare" }, picture);
+      ? h("button", { type: "button", class: "instrument", "aria-label": "Weigh again: replay the drawing and the balance", onclick: () => weigh(true) }, seal, scale.picture)
+      : h("div", { class: "instrument bare" }, scale.picture);
     return { element, weigh };
   }
 
@@ -405,7 +456,7 @@
       ];
     });
 
-    return h("div", null,
+    return [h("div", null,
       h("div", { class: "head" },
         h("div", null,
           h("div", { class: "summary" }, mark(v.overall, OVERALL[v.overall]),
@@ -415,12 +466,65 @@
           h("p", { class: "muted small" }, "File fingerprint ", h("span", { class: "hash" }, v.dataset_sha256.slice(0, 24) + "…"))),
         actions),
       format,
-      h("div", { class: "checks" }, groups),
-      h("div", { class: "charts" },
+      h("div", { class: "checks" }, groups)),
+      whatIf(v),
+      h("div", null,
+      h("div", { class: "charts", style: "margin-top:0" },
         calibrationChart(v.charts.calibration),
         scoresChart(v.charts.scores, v.threshold),
         ...Object.entries(v.charts.fairness).map(([attribute, rows]) => groupChart(attribute, rows))),
-      h("p", { class: "note" }, "The limits used here are common industry conventions, set as defaults. They are not legal thresholds; each lender should review and justify its own."));
+      h("p", { class: "note" }, "The limits used here are common industry conventions, set as defaults. They are not legal thresholds; each lender should review and justify its own."))];
+  }
+
+  // What if the cut-off moved? Arithmetic on the validated file, as if every loan scored below
+  // the cut-off were approved. The slider moves the cut-off; the numbers, the bias checks and the
+  // balance follow. It shows consequences and recommends nothing.
+  function whatIf(v) {
+    const rows = v.what_if;
+    if (!rows || !rows.length) {
+      return h("section", { class: "whatif ink", id: "at-what-if" }, h("div", { class: "wrap" },
+        h("h2", null, "What if the cut-off moved?"),
+        h("p", { class: "lede" }, "This validation was recorded before Balanza could move the cut-off. Validate the file again to try other cut-offs.")));
+    }
+    const inUse = Math.round(100 * v.threshold);
+    const at = (percent) => rows.find((row) => Math.round(100 * row.cut_off) === percent) || rows[0];
+    const cutOff = h("output", { class: "reading", for: "cut-off" });
+    const facts = [["approval_rate", "of the loans would be approved"], ["default_rate", "of the approved loans did not repay"], ["good_rejected", "of the people who repaid would be turned away"]]
+      .map(([key, label]) => ({ key, node: h("p", { class: "value" }), label }));
+    const bias = h("ul", { class: "whatif-bias" });
+    const scale = rows[0].bias.length ? balance("Pass", "Warning or fail") : null;
+    const back = h("button", { type: "button", class: "quiet", onclick: () => { slider.value = inUse; show(true); } }, `Back to ${inUse}%, the cut-off in use`);
+    const slider = h("input", { type: "range", id: "cut-off", min: Math.round(100 * rows[0].cut_off), max: Math.round(100 * rows.at(-1).cut_off), step: 1, value: inUse,
+      "aria-label": "Approve loans scored below this probability of default", oninput: () => show(true) });
+
+    function show(moving) {
+      const percent = Number(slider.value), row = at(percent);
+      cutOff.textContent = `${percent}%`;
+      slider.style.setProperty("--fill", `${(100 * (percent - slider.min)) / (slider.max - slider.min)}%`);
+      for (const fact of facts) fact.node.textContent = row[fact.key] === null ? "–" : pct(row[fact.key]);
+      bias.replaceChildren(...row.bias.map((measure) => h("li", null, mark(measure.status), h("span", null, measure.name), h("span", { class: "value" }, measure.display))));
+      back.style.visibility = percent === inUse ? "hidden" : "visible";
+      if (!scale) return;
+      scale.load({
+        ready: row.bias.filter((measure) => measure.status === "pass").length,
+        attention: row.bias.filter((measure) => measure.status === "warn").length,
+        gap: row.bias.filter((measure) => measure.status === "fail").length,
+      });
+      if (moving) scale.swing(); else scale.swing(0);
+    }
+    show(false);
+
+    return h("section", { class: "whatif ink", id: "at-what-if" }, h("div", { class: "wrap" },
+      h("div", { class: "whatif-text" },
+        h("h2", null, "What if the cut-off moved?"),
+        h("p", { class: "lede" }, `Today loans scored below ${inUse}% are approved. Move the cut-off to see what would change, on the same ${v.n_evaluated.toLocaleString("en-GB")} loans.`),
+        h("p", { class: "whatif-label" }, "Approve loans scored below"),
+        cutOff, slider, back,
+        h("div", { class: "readings" }, ...facts.map((fact) => h("div", null, fact.node, h("p", { class: "label" }, fact.label))))),
+      h("div", { class: "whatif-scale" },
+        scale && scale.picture,
+        bias),
+      h("p", { class: "whatif-note" }, "This is arithmetic on the validated file, as if every loan scored below the cut-off were approved. It shows what would change. It does not recommend a cut-off: moving it changes who gets credit and how much risk the lender takes, and that decision is the lender's. The limits are the same as in the bias checks above.")));
   }
 
   // ---- charts (one axis each, thin marks, a table behind every picture)
@@ -607,27 +711,42 @@
 
   // ---- documentation
 
-  function tabDocumentation(data, reload) {
-    const id = data.model.id, docs = data.model.docs || {};
+  function tabDocumentation(data, reload, focus) {
+    const id = data.model.id, docs = data.model.docs || {}, drafts = data.drafts || {};
     const usedFor = {};
     for (const r of data.evidence.requirements) for (const item of r.items) (usedFor[item.label] = usedFor[item.label] || []).push(r.article.split(" and ")[0]);
     const error = h("p", { class: "error", hidden: true });
+    const open = (text) => text.includes(meta.to_complete);
     const fields = Object.entries(meta.doc_fields).map(([key, field]) => {
       const text = docs[key] || "";
-      return h("div", { class: "field" },
+      const box = h("textarea", { id: `doc-${key}`, name: key, maxlength: 6000 }, text);
+      const drafted = h("p", { class: "drafted", hidden: true },
+        "Balanza wrote this from your test results. Complete the parts in [brackets] and check every sentence: you sign it, not Balanza. Nothing is saved until you press \"Save answers\".");
+      const useDraft = () => {
+        box.value = drafts[key];
+        requestAnimationFrame(() => { box.style.height = "auto"; box.style.height = `${box.scrollHeight + 4}px`; });
+        drafted.hidden = false; offer.hidden = true;
+      };
+      const offer = h("button", { type: "button", class: "quiet", hidden: !(drafts[key] && !text.trim()), onclick: useDraft }, "Draft it from the evidence");
+      if (focus === key && drafts[key] && !text.trim()) useDraft(); // arriving from a step of the route
+      const state = text.trim().length >= 40 && !open(text) ? mark("pass", "Written") : open(text) ? mark("missing", "Parts still to complete") : mark("missing", "Not written yet");
+      return h("div", { class: "field", id: `at-${key}` },
         h("label", { for: `doc-${key}` }, field.label, h("span", { class: "hint" }, field.help)),
-        h("textarea", { id: `doc-${key}`, name: key, maxlength: 6000 }, text),
-        h("p", { class: "needs" }, text.trim().length >= 40 ? mark("pass", "Written") : mark("missing", "Not written yet"),
-          usedFor[field.label] ? `   Evidence for ${usedFor[field.label].join(", ")}` : ""));
+        box, drafted,
+        h("p", { class: "needs" }, state, usedFor[field.label] ? `   Evidence for ${usedFor[field.label].join(", ")}` : ""),
+        offer);
     });
     return h("form", { class: "doc", onsubmit: async (event) => {
         event.preventDefault();
         const changes = {};
         for (const [key, value] of new FormData(event.target)) if ((docs[key] || "") !== value.trim()) changes[key] = value;
         if (!Object.keys(changes).length) { toast("Nothing has changed."); return; }
+        const unfinished = Object.values(changes).filter(open).length;
         try {
           await api(`/api/models/${id}/docs`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes) });
-          await reload("Answers saved. The evidence has been updated.");
+          await reload(unfinished
+            ? `Answers saved. ${count(unfinished, "answer still has", "answers still have")} parts to complete in [brackets], so ${unfinished === 1 ? "it does" : "they do"} not count yet.`
+            : "Answers saved. The evidence has been updated.");
         } catch (failure) { error.textContent = failure.message; error.hidden = false; }
       } },
       h("p", { class: "lede", style: "margin:0" }, "The answers only the lender can give. They go into the technical file, next to the test results. Write in plain language; an answer needs at least a couple of sentences to count."),
@@ -640,9 +759,55 @@
 
   function tabHistory(data) {
     return h("div", null,
+      verifyFile(data),
       h("p", { class: "lede", style: "margin:0 0 20px" }, "Every validation, monitoring month and change, with the fingerprint of the file that was used."),
       h("ul", { class: "trail" }, ...data.audit.map((entry) =>
         h("li", null, h("span", { class: "num muted" }, when(entry.at)), h("b", null, ACTIONS[entry.action] || entry.action), h("span", null, entry.detail)))));
+  }
+
+  // Is this the file that was weighed? The file's fingerprint is compared with the ones on
+  // record, and the two engravings are shown side by side: the same file draws the same huella.
+  function verifyFile(data) {
+    const id = data.model.id;
+    const result = h("div", { class: "verify-result", hidden: true, "aria-live": "polite" });
+    const seal = (sha, caption) => h("figure", { class: "seal" }, window.balanzaHuella(sha, { iris: true, draw: true, weight: 1.6 }),
+      h("figcaption", null, h("b", null, sha.slice(0, 12) + "…"), caption));
+    const used = (match) => match.kind === "validation"
+      ? `It is ${match.dataset_name}, the file validated on ${when(match.created_at)}. Result of that validation: ${WORDS[match.overall].toLowerCase()}.`
+      : `It is the file of the month ${match.period}, recorded on ${when(match.created_at)}. Result of that month: ${WORDS[match.overall].toLowerCase()}.`;
+
+    // A file validated several times is named once, with its latest validation.
+    const sameFile = (matches) => {
+      const validations = matches.filter((match) => match.kind === "validation"), months = matches.filter((match) => match.kind !== "validation");
+      return [
+        validations.length && used(validations[0]) + (validations.length > 1 ? ` It has been validated ${validations.length} times with this same file.` : ""),
+        ...months.map(used),
+      ].filter(Boolean).join(" ");
+    };
+
+    const choose = uploadButton("Choose a file to verify", async (file) => {
+      const body = new FormData(); body.append("file", file);
+      const answer = await api(`/api/models/${id}/verify`, { method: "POST", body });
+      const same = answer.matches.length > 0;
+      const elsewhere = answer.other_models.length ? ` A file with this fingerprint was used for: ${answer.other_models.join(", ")}.` : "";
+      result.replaceChildren(
+        h("div", { class: "seals" },
+          seal(answer.sha256, `This file: ${answer.file_name}`),
+          answer.validated && seal(answer.validated.dataset_sha256, `Validated: ${answer.validated.dataset_name}`)),
+        h("div", { class: "verdict" },
+          h("p", { class: "summary" }, same ? mark("pass", "Same file") : mark("fail", "Not the same file")),
+          h("p", null, same ? sameFile(answer.matches)
+            : (data.validation ? "No validation or monitoring month of this model used this file. One changed cell is enough to change the fingerprint, and the drawing with it." : "This model has no validation on record to compare with.") + elsewhere),
+          h("p", { class: "hash" }, answer.sha256)));
+      result.hidden = false;
+    }, true);
+
+    return h("div", { class: "panel verify" },
+      h("div", { class: "verify-ask" },
+        h("div", null, h("h2", null, "Verify a file"),
+          h("p", { class: "muted small" }, "Choose a file to see whether it is one that was weighed for this model. Balanza reads it, takes its fingerprint and keeps nothing.")),
+        choose),
+      result);
   }
 
   route();

@@ -147,3 +147,23 @@ def test_monitoring_rarely_cries_wolf(demo):
         record = run_monitoring(batch, result["reference_profile"], result["auc"], result["auc_se"])
         alarms += record["overall"] != "pass"
     assert alarms <= 2
+
+
+def test_what_if_agrees_with_the_checks_at_the_cut_off_in_use():
+    """Moving the cut-off is plain arithmetic with the same rules as the checks."""
+    from balanza import seed
+    from balanza.validation import read_csv
+
+    result = run_validation(read_csv(seed.demo_dataset_csv()))
+    rows = result["what_if"]
+    assert [row["cut_off"] for row in rows] == [step / 100 for step in range(1, 51)]
+    now = next(row for row in rows if row["cut_off"] == result["threshold"])
+    assert now["approval_rate"] == result["approval_rate"]  # the demo approves exactly below 15%
+    checks = {c["name"]: c for c in result["checks"]}
+    assert len(now["bias"]) == 4
+    for measure in now["bias"]:
+        assert measure["status"] == checks[measure["name"]]["status"]
+    assert "ratio 0.73" in now["bias"][2]["display"] and "gap 22.7 pts" in now["bias"][3]["display"]
+    approvals = [row["approval_rate"] for row in rows]
+    assert approvals == sorted(approvals)  # a higher cut-off never approves fewer loans
+    assert all(0 <= row["good_rejected"] <= 1 for row in rows)

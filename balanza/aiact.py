@@ -86,6 +86,13 @@ DOC_FIELDS = {
 }
 
 MIN_ANSWER = 40  # characters; shorter answers are treated as not written yet
+TO_COMPLETE = "[to complete"  # left by Balanza's drafts wherever only the lender knows the answer
+
+
+def is_written(text: str | None) -> bool:
+    """An answer counts once it is long enough and has no part left to complete."""
+    text = (text or "").strip()
+    return len(text) >= MIN_ANSWER and TO_COMPLETE not in text
 
 REQUIREMENTS = [
     {
@@ -199,12 +206,13 @@ def evidence(model: dict, validation: dict | None, monitoring: list[dict]) -> di
             items.append({"label": CATEGORY_LABELS[category], "status": "pass" if status == "na" else status, "detail": detail})
 
         for field in requirement["docs"]:
-            written = len((docs.get(field) or "").strip()) >= MIN_ANSWER
+            written = is_written(docs.get(field))
+            started = TO_COMPLETE in (docs.get(field) or "")
             items.append(
                 {
                     "label": DOC_FIELDS[field]["label"],
                     "status": "pass" if written else "missing",
-                    "detail": "Written." if written else "Not written yet (Documentation tab).",
+                    "detail": "Written." if written else "Parts still to complete (Documentation tab)." if started else "Not written yet (Documentation tab).",
                 }
             )
 

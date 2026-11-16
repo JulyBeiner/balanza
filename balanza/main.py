@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, aiact, database, report, seed
+from . import __version__, aiact, database, report, route, seed
 from .validation import DatasetError, fingerprint, read_csv, run_monitoring, run_validation
 
 STATIC = database.ROOT / "static"
@@ -82,14 +82,18 @@ def _summary(model: dict) -> dict:
     }
 
 
-async def _read_csv_upload(file: UploadFile) -> tuple[str, dict]:
+async def _read_text_upload(file: UploadFile) -> str:
     raw = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="The file is larger than 25 MB.")
     try:
-        text = raw.decode("utf-8-sig")
+        return raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="The file must be a CSV saved as UTF-8 text.") from None
+
+
+async def _read_csv_upload(file: UploadFile) -> tuple[str, dict]:
+    text = await _read_text_upload(file)
     try:
         return text, read_csv(text)
     except DatasetError as error:
@@ -132,6 +136,7 @@ def meta() -> dict:
         "days_left": aiact.days_to_deadline(),
         "use_cases": {key: {"label": value["label"], "risk_class": value["risk_class"], "risk_label": aiact.RISK_LABELS[value["risk_class"]], "basis": value["basis"]} for key, value in aiact.USE_CASES.items()},
         "doc_fields": aiact.DOC_FIELDS,
+        "to_complete": aiact.TO_COMPLETE,
     }
 
 
@@ -166,6 +171,8 @@ def model_detail(model_id: int) -> dict:
     return {
         "model": {**_summary(model), "docs": model["docs"]},
         "evidence": aiact.evidence(model, validation, monitoring),
+        "route": route.route(model, validation, monitoring),
+        "drafts": route.drafts(model, validation, monitoring),
         "validation": validation,
         "validations": database.list_validations(model_id),
         "monitoring": monitoring,
@@ -213,6 +220,25 @@ async def record_monitoring(model_id: int, period: str = Form(...), file: Upload
         raise HTTPException(status_code=400, detail=str(error)) from None
     database.add_monitoring(model_id, period, fingerprint(text), result)
     return {"period": period, "overall": result["overall"]}
+
+
+@app.post("/api/models/{model_id}/verify")
+async def verify_file(model_id: int, file: UploadFile = File(...)) -> dict:
+    """Is this the file that was weighed? Compares its fingerprint with the ones on record.
+
+    Nothing is stored: the file is read, its fingerprint is taken and it is dropped.
+    """
+    _model_or_404(model_id)
+    sha256 = fingerprint(await _read_text_upload(file))
+    used = database.find_fingerprint(sha256)
+    latest = database.latest_validation(model_id)
+    return {
+        "file_name": file.filename or "file",
+        "sha256": sha256,
+        "matches": [match for match in used if match["model_id"] == model_id],
+        "other_models": sorted({match["model_name"] for match in used if match["model_id"] != model_id}),
+        "validated": {key: latest[key] for key in ("dataset_name", "dataset_sha256", "created_at")} if latest else None,
+    }
 
 
 @app.get("/api/demo/dataset.csv", response_class=PlainTextResponse)

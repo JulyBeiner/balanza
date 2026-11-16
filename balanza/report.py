@@ -85,8 +85,9 @@ FIEL = (
 def _answer(docs: dict, field: str) -> str:
     text = (docs.get(field) or "").strip()
     label = aiact.DOC_FIELDS[field]["label"]
-    if len(text) >= aiact.MIN_ANSWER:
-        return f"<h3>{escape(label)}</h3><p>{escape(text)}</p>"
+    if aiact.is_written(text):
+        paragraphs = "".join(f"<p>{escape(line)}</p>" for line in text.splitlines() if line.strip())
+        return f"<h3>{escape(label)}</h3>{paragraphs}"
     return (
         f"<h3>{escape(label)}</h3>"
         f'<div class="gap"><b>TO BE COMPLETED BY THE PROVIDER</b>{escape(aiact.DOC_FIELDS[field]["help"])}</div>'

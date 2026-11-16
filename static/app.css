@@ -262,6 +262,60 @@ th.r, td.r { text-align: right; padding-right: 0; }
 .toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); background: var(--tinta); color: var(--blanco);
          box-shadow: 0 0 0 1px var(--grafito); padding: 14px 20px; border-radius: 2px; font-size: 14px; z-index: 30; max-width: min(92vw, 560px); }
 
+/* ---------------------------------------------------------------- the route: what to do next, in order */
+.route { margin-bottom: 80px; }
+.route > .lede { margin-top: 8px; }
+.steps { margin-top: 28px; border-top: 1px solid var(--tinta); }
+.steps > li { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px 32px; padding: 26px 0; border-bottom: 1px solid var(--niebla); }
+.steps .n { flex: 0 0 clamp(72px, 10.3vw, 148px); font: 300 56px/48px var(--mono); letter-spacing: -0.05em; color: var(--platino); }
+.steps .first .n { color: var(--tinta); }
+.steps .what { flex: 1 1 320px; min-width: 0; }
+.steps h3 { font-size: 20px; line-height: 28px; font-weight: 500; letter-spacing: -0.015em; }
+.steps .what p { margin-top: 4px; font-size: 15px; line-height: 22px; color: var(--plomo); max-width: 76ch; }
+.steps .what .effect { margin-top: 10px; color: var(--tinta); font-weight: 500; }
+.steps .button { flex: 0 0 auto; align-self: center; }
+.register-title { margin-bottom: 32px; }
+
+/* ---------------------------------------------------------------- what if the cut-off moved */
+.whatif .wrap { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); gap: 40px 64px; align-items: center; padding-block: 72px 56px; }
+.whatif h2 { font-size: clamp(30px, 3.2vw, 44px); line-height: 1.05; font-weight: 300; letter-spacing: -0.04em; }
+.whatif-text { min-width: 0; }
+.whatif-label { margin-top: 40px; font-size: 15px; line-height: 22px; color: var(--platino); }
+.whatif .reading { display: block; margin: 12px 0 0 -0.04em; font-size: clamp(96px, 11vw, 160px); line-height: 0.8; }
+.whatif button { margin-top: 6px; padding: 12px 16px; font-size: 14px; }
+.whatif .readings { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin-top: 40px; }
+.whatif .readings .value { font-size: clamp(34px, 3.4vw, 50px); }
+.whatif .readings .label { font-size: 14px; line-height: 20px; color: var(--platino); max-width: 22ch; }
+.whatif-scale { min-width: 0; }
+.whatif-scale .balance { display: block; width: 100%; max-width: 540px; margin: 0 auto; overflow: visible; }
+.whatif-bias { margin-top: 28px; display: grid; gap: 12px; }
+.whatif-bias li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 0 16px; font-size: 14.5px; line-height: 22px; }
+.whatif-bias .value { grid-column: 2; font: 400 13px/20px var(--mono); color: var(--bruma); }
+.whatif-note { grid-column: 1 / -1; padding-top: 20px; border-top: 1px solid var(--carbon); font-size: 13.5px; line-height: 20px; color: var(--bruma); max-width: 104ch; }
+input[type=range] { -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 44px; margin: 14px 0 0; padding: 0; background: none; border: 0; cursor: pointer; --fill: 30%; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(90deg, var(--cian), var(--azul)) left / var(--fill) 100% no-repeat, var(--grafito); }
+input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: linear-gradient(90deg, var(--cian), var(--azul)) left / var(--fill) 100% no-repeat, var(--grafito); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; margin-top: -12px; border: 0; border-radius: 50%; background: var(--blanco); box-shadow: 0 0 0 5px var(--tinta); }
+input[type=range]::-moz-range-thumb { width: 28px; height: 28px; border: 0; border-radius: 50%; background: var(--blanco); box-shadow: 0 0 0 5px var(--tinta); }
+input[type=range]:focus-visible { outline: 2px solid var(--cian); outline-offset: 4px; border-radius: 2px; }
+
+/* ---------------------------------------------------------------- drafts written from the evidence */
+.doc .drafted { margin-top: 8px; padding: 12px 14px; border-radius: 2px; background: var(--hielo); font-size: 13.5px; line-height: 20px; }
+.doc .field > button { margin-top: 12px; padding: 12px 16px; font-size: 14px; }
+
+/* ---------------------------------------------------------------- verify a file: two engravings, side by side */
+.verify { margin: 0 0 48px; }
+.verify-ask { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px 32px; }
+.verify-ask p { margin-top: 4px; max-width: 64ch; }
+.verify-result { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 24px 48px; align-items: center; margin-top: 28px; padding-top: 28px; border-top: 1px solid var(--niebla); }
+.seals { display: flex; flex-wrap: wrap; gap: 24px; }
+.seal { width: 176px; text-align: center; }
+.seal svg { width: 176px; height: 176px; }
+.seal figcaption { margin-top: 10px; font: 500 12px/16px var(--mono); color: var(--plomo); overflow-wrap: anywhere; }
+.seal figcaption b { display: block; font-weight: 500; color: var(--tinta); }
+.verdict p + p { margin-top: 10px; color: var(--grafito); max-width: 64ch; }
+.verdict .hash { overflow-wrap: anywhere; color: var(--plomo); }
+
 @media (max-width: 1042px) {
   .instrument .huella-svg { width: 112%; height: 112%; left: -6%; top: -6%; }
   .instrument .balance { width: 92%; left: 4%; top: 28.25%; }
@@ -271,6 +325,8 @@ th.r, td.r { text-align: right; padding-right: 0; }
   .hero.compact .wrap { grid-template-columns: minmax(0, 1fr); }
   .hero.compact .hero-text { padding-bottom: 20px; }
   .charts, .split, .form { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .verify-result { grid-template-columns: minmax(0, 1fr); }
+  .whatif .readings { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .split > table { display: block; overflow-x: auto; }
   .trail li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .check summary { grid-template-columns: 100px minmax(0, 1fr) 18px; }

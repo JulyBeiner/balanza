@@ -204,6 +204,25 @@ def list_monitoring(model_id: int) -> list[dict]:
     return records
 
 
+# ---------------------------------------------------------------- fingerprints
+
+
+def find_fingerprint(dataset_sha256: str) -> list[dict]:
+    """Every validation and monitoring month, of any model, that used a file with this fingerprint."""
+    with connect() as db:
+        validations = db.execute(
+            "SELECT v.model_id, m.name AS model_name, v.created_at, v.dataset_name, v.overall FROM validations v"
+            " JOIN models m ON m.id = v.model_id WHERE v.dataset_sha256 = ? ORDER BY v.id DESC",
+            (dataset_sha256,),
+        ).fetchall()
+        months = db.execute(
+            "SELECT o.model_id, m.name AS model_name, o.created_at, o.period, o.overall FROM monitoring o"
+            " JOIN models m ON m.id = o.model_id WHERE o.dataset_sha256 = ? ORDER BY o.period DESC",
+            (dataset_sha256,),
+        ).fetchall()
+    return [{"kind": "validation", **dict(row)} for row in validations] + [{"kind": "monitoring", **dict(row)} for row in months]
+
+
 # ---------------------------------------------------------------- audit trail
 
 

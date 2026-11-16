@@ -142,6 +142,73 @@ def _pct(value: float, digits: int = 1) -> str:
     return f"{100 * value:.{digits}f}%"
 
 
+# ---------------------------------------------------------------- bias measures that depend on the decision
+
+APPROVAL_RULE = (0.90, 0.80, True)      # lowest approval rate / highest: pass from 0.90, warn from 0.80
+OPPORTUNITY_RULE = (0.05, 0.10, False)  # gap between good payers approved: pass up to 5 points, warn up to 10
+
+
+def approval_ratio(rows: list[dict]) -> tuple[float, dict, dict]:
+    """Lowest approval rate divided by the highest, with the two groups."""
+    best = max(rows, key=lambda row: row["approval_rate"])
+    worst = min(rows, key=lambda row: row["approval_rate"])
+    ratio = worst["approval_rate"] / best["approval_rate"] if best["approval_rate"] > 0 else float("nan")
+    return ratio, worst, best
+
+
+def opportunity_gap(rows: list[dict]) -> tuple[float, tuple, tuple] | None:
+    """Among people who did repay, the gap between the group approved most and least."""
+    good_rates = [(row["group"], row["good_approval_rate"]) for row in rows if row["good_approval_rate"] is not None]
+    if len(good_rates) < 2:
+        return None
+    high = max(good_rates, key=lambda item: item[1])
+    low = min(good_rates, key=lambda item: item[1])
+    return high[1] - low[1], low, high
+
+
+def what_if(score: np.ndarray, y: np.ndarray, groups: dict[str, np.ndarray]) -> list[dict]:
+    """What would change if the cut-off moved: one row for each cut-off from 1% to 50%.
+
+    Plain arithmetic on the validated loans, as if every loan scored below the
+    cut-off were approved. The bias measures use the same rules as the checks.
+    It shows consequences; it does not recommend a cut-off.
+    """
+    rows = []
+    repayers = y == 0
+    for step in range(1, 51):
+        cut_off = step / 100
+        approved = (score < cut_off).astype(int)
+        n_approved = int(approved.sum())
+        row = {
+            "cut_off": cut_off,
+            "approval_rate": round(float(approved.mean()), 4),
+            # of the loans that would be approved, the share that did not repay
+            "default_rate": round(float(y[approved == 1].mean()), 4) if n_approved else None,
+            # of the people who did repay, the share that would be turned away
+            "good_rejected": round(float(1 - approved[repayers].mean()), 4),
+            "bias": [],
+        }
+        for attribute, values in groups.items():
+            table = metrics.group_table(values, y, score, approved)
+            label = attribute.replace("_", " ")
+            ratio, worst, best = approval_ratio(table)
+            row["bias"].append({
+                "name": f"Similar approval rates by {label}",
+                "status": grade(ratio, *APPROVAL_RULE),
+                "display": "nobody approved" if ratio != ratio else
+                f"{worst['group']} {_pct(worst['approval_rate'])} vs {best['group']} {_pct(best['approval_rate'])} (ratio {ratio:.2f})",
+            })
+            gap = opportunity_gap(table)
+            if gap:
+                row["bias"].append({
+                    "name": f"Good payers get the same chance by {label}",
+                    "status": grade(gap[0], *OPPORTUNITY_RULE),
+                    "display": f"{gap[1][0]} {_pct(gap[1][1])} vs {gap[2][0]} {_pct(gap[2][1])} (gap {100 * gap[0]:.1f} pts)",
+                })
+        rows.append(row)
+    return rows
+
+
 # ---------------------------------------------------------------- the checks
 
 
@@ -342,33 +409,28 @@ def run_validation(table: dict, threshold: float = DEFAULT_THRESHOLD) -> dict:
         fairness_charts[attribute] = rows
         label = attribute.replace("_", " ")
 
-        rates = [row["approval_rate"] for row in rows]
-        best = max(rows, key=lambda row: row["approval_rate"])
-        worst = min(rows, key=lambda row: row["approval_rate"])
-        ratio = min(rates) / max(rates) if max(rates) > 0 else float("nan")
+        ratio, worst, best = approval_ratio(rows)
         checks.append(
             _check(
                 f"fairness.{attribute}.approval", "fairness", f"Similar approval rates by {label}",
                 ratio,
                 f"{worst['group']} approved {_pct(worst['approval_rate'])} vs {best['group']} {_pct(best['approval_rate'])} (ratio {ratio:.2f})",
-                grade(ratio, 0.90, 0.80, True),
+                grade(ratio, *APPROVAL_RULE),
                 "Pass from 0.90, warn from 0.80 (four-fifths rule of thumb)",
                 "Lowest approval rate divided by the highest. A low ratio is not proof of discrimination, but it must be explained and justified.",
                 ["Art. 10", "Art. 9"],
             )
         )
 
-        good_rates = [(row["group"], row["good_approval_rate"]) for row in rows if row["good_approval_rate"] is not None]
-        if len(good_rates) >= 2:
-            high = max(good_rates, key=lambda item: item[1])
-            low = min(good_rates, key=lambda item: item[1])
-            gap = high[1] - low[1]
+        measured_gap = opportunity_gap(rows)
+        if measured_gap:
+            gap, low, high = measured_gap
             checks.append(
                 _check(
                     f"fairness.{attribute}.opportunity", "fairness", f"Good payers get the same chance by {label}",
                     gap,
                     f"good payers approved: {low[0]} {_pct(low[1])} vs {high[0]} {_pct(high[1])} (gap {100 * gap:.1f} pts)",
-                    grade(gap, 0.05, 0.10, False),
+                    grade(gap, *OPPORTUNITY_RULE),
                     "Pass up to 5 points, warn up to 10",
                     "Looks only at people who did repay. If one group of good payers is rejected much more often, the model is costing them loans they deserved.",
                     ["Art. 10", "Art. 9"],
@@ -415,6 +477,7 @@ def run_validation(table: dict, threshold: float = DEFAULT_THRESHOLD) -> dict:
         "protected_attributes": groups,
         "checks": checks,
         "reference_profile": profile,
+        "what_if": what_if(score, y, {attribute: table[attribute][evaluate] for attribute in groups}),
         "charts": {
             "roc": metrics.roc_points(y, score),
             "calibration": metrics.calibration_table(y, score),
